@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" data-text-size="medium">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="theme-color" content="#0a1e3d"/>
+<title>KINETEK</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+
+<!-- Firebase SDKs -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getAuth,
+    onAuthStateChanged,
+    signInWithEmailAndPassword,
+    createUserWithEmailAndPassword,
+    signInWithPopup,
+    GoogleAuthProvider,
+    signOut,
+    updateProfile,
+    deleteUser
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    getFirestore,
+    doc,
+    setDoc,
+    getDoc,
+    updateDoc,
+    serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // ── YOUR FIREBASE CONFIG ──
+  const firebaseConfig = {
+    apiKey: "AIzaSyAQ1pVug3hxOvS6DyGymrB_Do3-xUyUp3I",
+    authDomain: "kinetech-app.firebaseapp.com",
+    projectId: "kinetech-app",
+    storageBucket: "kinetech-app.firebasestorage.app",
+    messagingSenderId: "999217844131",
+    appId: "1:999217844131:web:0b95c12a604a230fd51416"
+  };
+
+  const app        = initializeApp(firebaseConfig);
+  const auth       = getAuth(app);
+  const db         = getFirestore(app);
+  const googleProv = new GoogleAuthProvider();
+
+  /* ═══════════════════════════════
+     EXPOSE TO WINDOW (bridge to non-module JS)
+  ═══════════════════════════════ */
+  window._fb = { auth, db, googleProv,
+    signInWithEmailAndPassword, createUserWithEmailAndPassword,
+    signInWithPopup, signOut, updateProfile, deleteUser,
+    onAuthStateChanged, doc, setDoc, getDoc, updateDoc, serverTimestamp
+  };
+
+  /* ═══════════════════════════════
+     AUTH STATE LISTENER
+  ═══════════════════════════════ */
+  onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      // Load profile from Firestore
+      const snap = await getDoc(doc(db, 'users', user.uid));
+      const profile = snap.exists() ? snap.data() : {};
+      window._currentUID = user.uid;
+      window._firebaseUser = user;
+      applyUserToUI({
+        name:   profile.name  || user.displayName || user.email.split('@')[0],
+        email:  profile.email || user.email,
+        phone:  profile.phone || '',
+        avatar: profile.avatar || '',
+        method: profile.method || 'Email'
+      });
+      // Only navigate if still on login/splash/onboarding
+      const active = document.querySelector('.view.active');
+      if (active && ['splash','onboarding','login'].includes(active.id)) {
+        showView('home');
+        setTab(0);
+      }
+    }
+  });
+</script>
+
+<style>
+/* ══════════════════════════════════════════
+   THEME TOKENS
+══════════════════════════════════════════ */
+:root {
+  --bg: #f0f4fc; --bg2: #ffffff; --bg3: #f7faff; --card: #ffffff;
+  --text: #131928; --muted: #5a6880; --border: #d8e3f0; --border2: #b6cde8;
+  --blue: #1a5fa8; --blue2: #2272c3; --blue3: #0f3d78; --bluelight: #daeaf9;
+  --gold: #e8a020; --shadow: 0 4px 20px rgba(26,95,168,.1);
+  --shadow2: 0 8px 32px rgba(26,95,168,.18); --input-bg: #f7faff;
+  --tab-bg: rgba(255,255,255,.94); --danger: #e53e3e; --success: #1da954;
+  --fs-xs:.65rem; --fs-sm:.75rem; --fs-base:.88rem; --fs-md:.95rem;
+  --fs-lg:1rem; --fs-xl:1.35rem; --fs-2xl:1.6rem; --fs-3xl:2.2rem;
+}
+[data-theme="dark"] {
+  --bg:#090e1c; --bg2:#0e1526; --bg3:#111d30; --card:#131d33;
+  --text:#e4ecf9; --muted:#7c94b8; --border:#1e2e4a; --border2:#2a4068;
+  --bluelight:#162440; --shadow:0 4px 20px rgba(0,0,0,.4);
+  --shadow2:0 8px 32px rgba(0,0,0,.55); --input-bg:#0e1526;
+  --tab-bg:rgba(13,21,38,.95);
+}
+[data-text-size="small"]  { --fs-xs:.58rem;--fs-sm:.67rem;--fs-base:.8rem;--fs-md:.86rem;--fs-lg:.9rem;--fs-xl:1.2rem;--fs-2xl:1.4rem;--fs-3xl:2rem; }
+[data-text-size="large"]  { --fs-xs:.72rem;--fs-sm:.84rem;--fs-base:.98rem;--fs-md:1.06rem;--fs-lg:1.12rem;--fs-xl:1.5rem;--fs-2xl:1.78rem;--fs-3xl:2.5rem; }
+
+body,input,textarea,select,button{font-size:var(--fs-base);}
+.sp-name,.login-brand-name,.founder-name{font-size:var(--fs-3xl)!important;}
+.inner-header h2,.hh-title{font-size:var(--fs-2xl)!important;}
+.login-title,.ob-slide h2{font-size:var(--fs-xl)!important;}
+.ob-slide p,.login-sub,.bio-card p{font-size:var(--fs-base)!important;}
+.tab-label,.ob-skip,.sp-tag,.login-brand-tag{font-size:var(--fs-xs)!important;}
+.svc-card p,.why-card p,.val-chip,.cert-text span{font-size:var(--fs-sm)!important;}
+.svc-card h4,.svc-mini h4,.why-card h5{font-size:var(--fs-md)!important;}
+.settings-row-label span{font-size:var(--fs-md)!important;}
+.settings-row-label small{font-size:var(--fs-sm)!important;}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;}
+body{font-family:'DM Sans',sans-serif;background:#0a0a0f;overscroll-behavior:none;-webkit-font-smoothing:antialiased;}
+
+.stage{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem;
+  background:radial-gradient(ellipse at 20% 50%,rgba(26,95,168,.2) 0%,transparent 60%),
+  radial-gradient(ellipse at 80% 20%,rgba(232,160,32,.1) 0%,transparent 50%),#0a0a0f;}
+.stage-label{position:fixed;top:1rem;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.28);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;pointer-events:none;z-index:999;white-space:nowrap;}
+
+.phone{width:393px;height:852px;background:#111;border-radius:54px;position:relative;flex-shrink:0;
+  box-shadow:0 0 0 1px #333,0 0 0 3px #0a0a0a,0 0 0 5px #222,0 50px 140px rgba(0,0,0,.95),inset 0 0 0 1px rgba(255,255,255,.07);}
+.phone::after{content:'';position:absolute;inset:0;border-radius:54px;pointer-events:none;z-index:200;
+  background:linear-gradient(145deg,rgba(255,255,255,.13) 0%,transparent 30%,transparent 70%,rgba(255,255,255,.06) 100%);}
+.phone-btn{position:absolute;background:#2a2a2a;}
+.phone-btn.vol1{left:-3px;top:140px;width:3px;height:34px;border-radius:2px 0 0 2px;}
+.phone-btn.vol2{left:-3px;top:186px;width:3px;height:64px;border-radius:2px 0 0 2px;}
+.phone-btn.vol3{left:-3px;top:262px;width:3px;height:64px;border-radius:2px 0 0 2px;}
+.phone-btn.pwr{right:-3px;top:200px;width:3px;height:80px;border-radius:0 2px 2px 0;}
+.dynamic-island{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:120px;height:34px;background:#000;border-radius:20px;z-index:150;}
+.screen{position:absolute;inset:0;border-radius:54px;overflow:hidden;background:#07172e;}
+
+@media(max-width:600px){
+  body{background:var(--bg);overflow:hidden;height:100dvh;}
+  .stage{padding:0;min-height:100dvh;display:block;background:none;}
+  .stage-label,.dynamic-island,.phone-btn,.status-bar{display:none!important;}
+  .phone{width:100%;height:100dvh;border-radius:0;box-shadow:none;background:var(--bg);}
+  .screen{border-radius:0;position:fixed;inset:0;height:100dvh;}
+  .view{border-radius:0!important;}
+  .home-header,.inner-header,.founder-hero-bg{padding-top:max(32px,env(safe-area-inset-top,32px))!important;}
+  #splash,#onboarding{padding-top:max(20px,env(safe-area-inset-top,20px))!important;}
+  .tab-bar{padding-bottom:max(16px,env(safe-area-inset-bottom,16px))!important;height:auto!important;}
+  .home-body,.services-list,.founder-scroll,.contact-scroll,.settings-scroll{padding-bottom:110px!important;}
+}
+
+.status-bar{position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 28px 8px;z-index:140;pointer-events:none;color:#fff;transition:color .3s;}
+.status-bar .time{font-size:14px;font-weight:700;letter-spacing:-.02em;}
+.status-icons{display:flex;align-items:center;gap:5px;font-size:11px;}
+
+.view{position:absolute;top:0;left:0;width:100%;height:100%;border-radius:54px;overflow:hidden;display:none;flex-direction:column;background:var(--bg);transition:background .3s;}
+.view.active{display:flex;}
+
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{opacity:0;transform:translateY(36px)}to{opacity:1;transform:translateY(0)}}
+@keyframes scaleIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.65;transform:scale(.94)}}
+@keyframes fillBar{from{width:0}to{width:100%}}
+@keyframes shakeX{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+
+/* SPLASH */
+#splash{background:linear-gradient(160deg,#07172e 0%,#0f3d78 55%,#1a5fa8 100%);align-items:center;justify-content:center;color:#fff;position:absolute;inset:0;width:100%;height:100%;}
+.sp-orb{position:absolute;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle,rgba(34,114,195,.45) 0%,transparent 68%);animation:pulse 3.5s ease-in-out infinite;pointer-events:none;}
+.sp-orb2{position:absolute;width:180px;height:180px;bottom:20%;right:10%;border-radius:50%;background:radial-gradient(circle,rgba(232,160,32,.2) 0%,transparent 70%);animation:pulse 4s ease-in-out infinite reverse;pointer-events:none;}
+.sp-content{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;gap:18px;animation:scaleIn .9s cubic-bezier(.22,.68,0,1.2) forwards;}
+.sp-ring{position:relative;width:120px;height:120px;}
+.sp-ring-spin{position:absolute;inset:-5px;border-radius:50%;border:2px dashed rgba(255,255,255,.3);animation:spin 14s linear infinite;}
+.sp-circle{width:120px;height:120px;border-radius:50%;background:#fff;overflow:hidden;border:3px solid rgba(255,255,255,.22);box-shadow:0 0 0 8px rgba(255,255,255,.07),0 16px 50px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;}
+.sp-circle img{width:100%;height:100%;object-fit:cover;}
+.sp-fb{font-family:'Playfair Display',serif;font-size:2.8rem;font-weight:700;color:#1a5fa8;}
+.sp-name{font-family:'Playfair Display',serif;font-size:2.2rem;font-weight:700;letter-spacing:.07em;text-align:center;}
+.sp-tag{font-size:.72rem;letter-spacing:.22em;text-transform:uppercase;opacity:.6;text-align:center;}
+.sp-bar-wrap{position:absolute;bottom:72px;left:50%;transform:translateX(-50%);width:170px;display:flex;flex-direction:column;align-items:center;gap:10px;animation:fadeIn .8s .6s both;}
+.sp-track{width:100%;height:3px;background:rgba(255,255,255,.18);border-radius:3px;overflow:hidden;}
+.sp-fill{height:100%;width:0;background:linear-gradient(90deg,rgba(255,255,255,.5),#fff);border-radius:3px;animation:fillBar 2.6s cubic-bezier(.4,0,.2,1) .4s forwards;}
+.sp-txt{font-size:.65rem;letter-spacing:.18em;text-transform:uppercase;opacity:.4;}
+
+/* ONBOARDING */
+#onboarding{background:var(--bg2);}
+.ob-slides{flex:1;position:relative;overflow:hidden;}
+.ob-slide{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:64px 30px 20px;gap:16px;opacity:0;transform:translateX(32px);transition:opacity .42s cubic-bezier(.22,.68,0,1),transform .42s cubic-bezier(.22,.68,0,1);pointer-events:none;}
+.ob-slide.active{opacity:1;transform:translateX(0);pointer-events:auto;}
+.ob-slide.exit{opacity:0;transform:translateX(-32px);}
+.ob-illo{width:180px;height:180px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:4.2rem;animation:float 4s ease-in-out infinite;flex-shrink:0;}
+.ob-bg1{background:linear-gradient(135deg,#daeaf9,#b8d6f0);}
+.ob-bg2{background:linear-gradient(135deg,#fff4dc,#ffe0a0);}
+.ob-bg3{background:linear-gradient(135deg,#d4f4e2,#9dd9b5);}
+.ob-slide h2{font-family:'Playfair Display',serif;font-size:1.55rem;text-align:center;line-height:1.25;color:var(--text);}
+.ob-slide p{font-size:.88rem;color:var(--muted);text-align:center;line-height:1.72;max-width:270px;}
+.ob-footer{padding:16px 22px max(30px,env(safe-area-inset-bottom,30px));display:flex;flex-direction:column;align-items:center;gap:12px;background:var(--bg2);}
+.ob-dots{display:flex;gap:7px;}
+.ob-dot{width:8px;height:8px;border-radius:50%;background:var(--border);transition:all .3s;}
+.ob-dot.active{background:var(--blue);width:22px;border-radius:4px;}
+.ob-btn{width:100%;padding:16px;border-radius:16px;background:linear-gradient(135deg,#2272c3,#0f3d78);color:#fff;font-weight:700;font-size:1rem;border:none;cursor:pointer;box-shadow:0 8px 22px rgba(26,95,168,.32);transition:transform .2s;font-family:'DM Sans',sans-serif;}
+.ob-btn:active{transform:scale(.97);}
+.ob-skip{background:none;border:none;color:var(--muted);font-size:.85rem;cursor:pointer;font-family:'DM Sans',sans-serif;padding:4px 12px;}
+
+/* LOGIN */
+#login{background:var(--bg2);overflow:hidden;}
+.login-bg{position:absolute;top:0;left:0;right:0;height:42%;background:linear-gradient(160deg,#07172e 0%,#0f3d78 55%,#1a5fa8 100%);border-radius:0 0 40px 40px;overflow:hidden;}
+.login-bg-orb{position:absolute;top:-40px;right:-40px;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.12) 0%,transparent 70%);}
+.login-scroll{flex:1;overflow-y:auto;padding-bottom:30px;position:relative;z-index:1;}
+.login-scroll::-webkit-scrollbar{display:none;}
+.login-top{padding:60px 24px 0;display:flex;flex-direction:column;align-items:center;gap:14px;color:#fff;margin-bottom:60px;}
+.login-logo-circle{width:90px;height:90px;border-radius:50%;background:#fff;overflow:hidden;border:3px solid rgba(255,255,255,.25);box-shadow:0 0 0 6px rgba(255,255,255,.08),0 12px 36px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;animation:float 5s ease-in-out infinite;}
+.login-logo-circle img{width:100%;height:100%;object-fit:cover;}
+.login-logo-fb{font-family:'Playfair Display',serif;font-size:2rem;font-weight:700;color:#1a5fa8;}
+.login-brand-name{font-family:'Playfair Display',serif;font-size:1.6rem;font-weight:700;letter-spacing:.06em;}
+.login-brand-tag{font-size:.7rem;letter-spacing:.2em;text-transform:uppercase;opacity:.6;}
+.login-card{background:var(--bg2);border-radius:32px 32px 0 0;padding:28px 24px 24px;position:relative;box-shadow:0 -8px 40px rgba(0,0,0,.12);}
+.login-card-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 22px;}
+.login-title{font-family:'Playfair Display',serif;font-size:1.35rem;font-weight:700;color:var(--text);margin-bottom:6px;}
+.login-sub{font-size:.82rem;color:var(--muted);margin-bottom:22px;line-height:1.5;}
+
+/* tabs: login / signup */
+.auth-tabs{display:flex;gap:0;margin-bottom:20px;background:var(--bg3);border-radius:12px;padding:4px;}
+.auth-tab{flex:1;padding:10px;border:none;border-radius:9px;background:transparent;color:var(--muted);font-weight:600;font-size:.86rem;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;}
+.auth-tab.active{background:var(--card);color:var(--blue);box-shadow:var(--shadow);}
+
+.social-btns{display:flex;flex-direction:column;gap:11px;margin-bottom:20px;}
+.social-btn{width:100%;padding:14px 18px;border-radius:14px;border:1.5px solid var(--border);background:var(--card);display:flex;align-items:center;gap:12px;font-size:.92rem;font-weight:600;color:var(--text);cursor:pointer;transition:transform .18s,box-shadow .18s;font-family:'DM Sans',sans-serif;box-shadow:var(--shadow);}
+.social-btn:active{transform:scale(.97);}
+.social-btn.google{background:var(--card);}
+.social-icon{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;}
+.divider-row{display:flex;align-items:center;gap:10px;margin:16px 0;}
+.divider-line{flex:1;height:1px;background:var(--border);}
+.divider-txt{font-size:.75rem;color:var(--muted);font-weight:500;}
+.login-form-group{margin-bottom:13px;}
+.login-form-group label{display:block;font-size:.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;}
+.login-form-group input{width:100%;padding:13px 14px;border:1.5px solid var(--border);border-radius:12px;background:var(--input-bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:.9rem;outline:none;transition:border-color .2s,box-shadow .2s;-webkit-appearance:none;}
+.login-form-group input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,95,168,.12);}
+.login-form-group input::placeholder{color:var(--border2);}
+.login-form-error{display:none;font-size:.72rem;color:var(--danger);font-weight:600;margin-top:4px;padding:0 4px;}
+.login-error{display:none;background:rgba(229,62,62,.1);border:1px solid rgba(229,62,62,.3);border-radius:10px;color:var(--danger);font-size:.8rem;font-weight:600;padding:10px 14px;margin-bottom:14px;animation:shakeX .4s ease;}
+.login-main-btn{width:100%;padding:15px;border-radius:14px;background:linear-gradient(135deg,#2272c3,#0f3d78);color:#fff;font-weight:700;font-size:.95rem;border:none;cursor:pointer;box-shadow:0 6px 20px rgba(26,95,168,.3);transition:transform .2s,opacity .2s;font-family:'DM Sans',sans-serif;margin-top:4px;}
+.login-main-btn:active{transform:scale(.97);}
+.login-main-btn:disabled{opacity:.6;}
+.login-terms{text-align:center;margin-top:12px;font-size:.7rem;color:var(--muted);line-height:1.5;}
+.login-terms a{color:var(--blue);}
+
+/* Loading spinner overlay */
+.loading-overlay{position:absolute;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(6px);z-index:600;display:none;align-items:center;justify-content:center;border-radius:54px;flex-direction:column;gap:16px;}
+.loading-overlay.show{display:flex;}
+.spinner{width:48px;height:48px;border:4px solid rgba(255,255,255,.2);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;}
+.loading-txt{color:#fff;font-size:.82rem;font-weight:600;letter-spacing:.06em;}
+
+/* TAB BAR */
+.tab-bar{position:absolute;bottom:0;left:0;right:0;height:86px;background:var(--tab-bg);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-around;padding-top:11px;z-index:30;transition:background .3s,border-color .3s;}
+.tab-item{display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;flex:1;padding:2px 0;transition:transform .18s;background:none;border:none;font-family:'DM Sans',sans-serif;}
+.tab-item:active{transform:scale(.9);}
+.tab-icon{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.15rem;transition:background .2s,transform .2s;}
+.tab-label{font-size:.58rem;font-weight:600;color:var(--muted);letter-spacing:.04em;transition:color .2s;}
+.tab-item.active .tab-icon{background:var(--bluelight);transform:scale(1.08);}
+.tab-item.active .tab-label{color:var(--blue);}
+
+/* HOME */
+#home{background:var(--bg);}
+.home-header{background:linear-gradient(155deg,#07172e 0%,#0f3d78 45%,#1a5fa8 100%);padding:58px 20px 24px;border-radius:0 0 30px 30px;position:relative;overflow:hidden;color:#fff;flex-shrink:0;}
+.hh-orb{position:absolute;top:-50px;right:-50px;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.1) 0%,transparent 70%);pointer-events:none;}
+.hh-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+.hh-greeting{font-size:.7rem;letter-spacing:.13em;text-transform:uppercase;opacity:.6;margin-bottom:3px;}
+.hh-title{font-family:'Playfair Display',serif;font-size:1.6rem;font-weight:700;line-height:1.18;}
+.hh-title em{font-style:italic;color:#f0b540;}
+.hh-sub{font-size:.78rem;opacity:.65;margin-top:5px;margin-bottom:14px;}
+.hh-avatar{width:50px;height:50px;border-radius:50%;background:#fff;overflow:hidden;border:2.5px solid rgba(255,255,255,.28);box-shadow:0 4px 18px rgba(0,0,0,.3);flex-shrink:0;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-size:1.1rem;font-weight:700;color:var(--blue);transition:transform .2s;}
+.hh-avatar:active{transform:scale(.9);}
+.hh-avatar img{width:100%;height:100%;object-fit:cover;}
+.stats-row{display:flex;gap:8px;}
+.stat-chip{flex:1;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.16);border-radius:12px;padding:9px 8px;text-align:center;backdrop-filter:blur(6px);}
+.stat-chip .sv{font-size:.95rem;font-weight:700;line-height:1;}
+.stat-chip .sl{font-size:.56rem;opacity:.62;margin-top:3px;letter-spacing:.07em;text-transform:uppercase;}
+.home-body{flex:1;overflow-y:auto;padding:18px 16px 100px;-webkit-overflow-scrolling:touch;}
+.home-body::-webkit-scrollbar{display:none;}
+.sec-lbl{font-size:.67rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-bottom:11px;}
+.h-scroll{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;margin-bottom:24px;scroll-snap-type:x mandatory;}
+.h-scroll::-webkit-scrollbar{display:none;}
+.svc-mini{min-width:140px;flex-shrink:0;background:var(--card);border-radius:16px;padding:16px 14px;border:1px solid var(--border);scroll-snap-align:start;cursor:pointer;box-shadow:var(--shadow);transition:transform .2s;}
+.svc-mini:active{transform:scale(.96);}
+.svc-mini-icon{width:40px;height:40px;border-radius:11px;background:var(--bluelight);display:flex;align-items:center;justify-content:center;font-size:1.2rem;margin-bottom:9px;}
+.svc-mini h4{font-family:'DM Sans',sans-serif;font-size:.78rem;font-weight:700;color:var(--text);line-height:1.3;}
+.why-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-bottom:22px;}
+.why-card{background:var(--card);border-radius:15px;padding:14px 13px;border:1px solid var(--border);box-shadow:var(--shadow);cursor:pointer;transition:transform .2s;}
+.why-card:active{transform:scale(.96);}
+.why-card .wi{font-size:1.3rem;margin-bottom:5px;}
+.why-card h5{font-family:'DM Sans',sans-serif;font-size:.76rem;font-weight:700;color:var(--text);margin-bottom:3px;}
+.why-card p{font-size:.68rem;color:var(--muted);line-height:1.5;}
+.cta-banner{background:linear-gradient(135deg,#e8a020,#f0b540);border-radius:18px;padding:18px;display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:20px;cursor:pointer;box-shadow:0 6px 22px rgba(232,160,32,.28);transition:transform .2s;}
+.cta-banner:active{transform:scale(.98);}
+.cta-banner h4{font-family:'Playfair Display',serif;font-size:1rem;color:#131928;margin-bottom:3px;}
+.cta-banner p{font-size:.75rem;color:rgba(19,25,40,.68);}
+.cta-arr{width:36px;height:36px;background:rgba(255,255,255,.38);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;}
+
+/* INNER HEADER */
+.inner-header{background:linear-gradient(155deg,#07172e 0%,#0f3d78 45%,#1a5fa8 100%);padding:58px 20px 22px;color:#fff;border-radius:0 0 26px 26px;flex-shrink:0;}
+.back-btn{display:flex;align-items:center;gap:5px;background:none;border:none;color:rgba(255,255,255,.72);font-size:.82rem;cursor:pointer;font-family:'DM Sans',sans-serif;margin-bottom:6px;padding:0;}
+.inner-header h2{font-family:'Playfair Display',serif;font-size:1.45rem;}
+
+/* SERVICES */
+#services-screen{background:var(--bg);}
+.services-list{flex:1;overflow-y:auto;padding:18px 16px 100px;}
+.services-list::-webkit-scrollbar{display:none;}
+.svc-card{background:var(--card);border-radius:18px;padding:18px 16px;border:1px solid var(--border);margin-bottom:12px;display:flex;align-items:flex-start;gap:13px;cursor:pointer;box-shadow:var(--shadow);transition:transform .2s,box-shadow .2s;position:relative;overflow:hidden;}
+.svc-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(to bottom,var(--blue),var(--gold));border-radius:4px 0 0 4px;}
+.svc-card:active{transform:scale(.98);box-shadow:var(--shadow2);}
+.svc-icon{width:46px;height:46px;border-radius:13px;background:var(--bluelight);display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;}
+.svc-card h4{font-family:'DM Sans',sans-serif;font-weight:700;font-size:.92rem;margin-bottom:4px;color:var(--text);}
+.svc-card p{font-size:.78rem;color:var(--muted);line-height:1.55;}
+
+/* FOUNDER */
+#founder-screen{background:var(--bg);}
+.founder-scroll{flex:1;overflow-y:auto;padding-bottom:100px;}
+.founder-scroll::-webkit-scrollbar{display:none;}
+.founder-hero-bg{background:linear-gradient(160deg,#07172e 0%,#0f3d78 50%,#1a5fa8 100%);padding:58px 20px 50px;display:flex;flex-direction:column;align-items:center;gap:14px;color:#fff;position:relative;overflow:hidden;}
+.founder-hero-bg::after{content:'';position:absolute;bottom:-28px;left:50%;transform:translateX(-50%);width:120%;height:56px;background:var(--bg);border-radius:50%;}
+.founder-av-wrap{position:relative;z-index:1;}
+.founder-av-ring{width:108px;height:108px;border-radius:50%;background:conic-gradient(from 0deg,#1a5fa8,#e8a020,#2272c3,#1a5fa8);padding:3px;display:flex;align-items:center;justify-content:center;animation:spin 9s linear infinite;box-shadow:0 8px 28px rgba(0,0,0,.35);}
+.founder-av-inner{width:102px;height:102px;border-radius:50%;background:#0f3d78;display:flex;align-items:center;justify-content:center;animation:spin 9s linear reverse infinite;}
+.founder-av-letters{font-family:'Playfair Display',serif;font-size:2.2rem;font-weight:700;background:linear-gradient(135deg,#fff,#f0b540);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:spin 9s linear reverse infinite;}
+.founder-name{font-family:'Playfair Display',serif;font-size:1.45rem;font-weight:700;z-index:1;}
+.founder-role{font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;opacity:.62;z-index:1;}
+.founder-body{padding:46px 18px 0;}
+.cert-card{background:var(--card);border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:13px;border:1px solid var(--border);box-shadow:var(--shadow);margin-bottom:16px;}
+.cert-badge{width:48px;height:48px;border-radius:13px;background:linear-gradient(135deg,#1a5fa8,#e8a020);display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;}
+.cert-text strong{display:block;font-size:.88rem;font-weight:700;color:var(--text);}
+.cert-text span{font-size:.73rem;color:var(--muted);}
+.bio-card{background:var(--card);border-radius:16px;padding:18px 16px;border:1px solid var(--border);margin-bottom:14px;box-shadow:var(--shadow);}
+.bio-card p{font-size:.85rem;color:var(--muted);line-height:1.72;margin-bottom:.65rem;}
+.bio-card p:last-child{margin-bottom:0;}
+.vals-row{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:18px;}
+.val-chip{background:var(--bluelight);color:var(--blue);font-size:.73rem;font-weight:700;padding:5px 11px;border-radius:100px;border:1px solid var(--border);}
+
+/* CONTACT */
+#contact-screen{background:var(--bg);}
+.contact-scroll{flex:1;overflow-y:auto;padding-bottom:100px;}
+.contact-scroll::-webkit-scrollbar{display:none;}
+.contact-body{padding:18px 16px 0;}
+.wa-card{background:linear-gradient(135deg,#1da954,#25D366,#3ae07a);border-radius:20px;padding:20px 18px;display:flex;align-items:center;gap:14px;margin-bottom:14px;cursor:pointer;box-shadow:0 6px 22px rgba(37,211,102,.28);transition:transform .2s;position:relative;overflow:hidden;text-decoration:none;}
+.wa-card:active{transform:scale(.97);}
+.wa-icon-big{font-size:2.2rem;flex-shrink:0;}
+.wa-card-text{color:#fff;}
+.wa-card-text strong{display:block;font-size:.95rem;font-weight:800;margin-bottom:2px;}
+.wa-card-text span{font-size:.82rem;opacity:.92;font-weight:600;}
+.wa-card-text small{display:block;font-size:.68rem;opacity:.72;margin-top:2px;}
+.form-card{background:var(--card);border-radius:20px;padding:20px 18px;border:1px solid var(--border);box-shadow:var(--shadow2);position:relative;overflow:hidden;margin-bottom:14px;}
+.form-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--blue),var(--gold));}
+.form-card h3{font-family:'DM Sans',sans-serif;font-size:.95rem;font-weight:700;margin-bottom:14px;padding-top:4px;color:var(--text);}
+.app-fg{margin-bottom:12px;}
+.app-fg label{display:block;font-size:.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px;}
+.app-fg input,.app-fg textarea,.app-fg select{width:100%;padding:12px 13px;border:1.5px solid var(--border);border-radius:11px;background:var(--input-bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:.88rem;outline:none;transition:border-color .2s,box-shadow .2s;-webkit-appearance:none;}
+.app-fg input:focus,.app-fg textarea:focus,.app-fg select:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,95,168,.12);}
+.app-fg input::placeholder,.app-fg textarea::placeholder{color:var(--border2);}
+.app-fg select option{background:var(--card);color:var(--text);}
+.contact-form-error{display:none;font-size:.7rem;color:var(--danger);font-weight:600;margin-top:4px;padding:0 2px;}
+.send-btn{width:100%;padding:14px;border-radius:13px;background:linear-gradient(135deg,#2272c3,#0f3d78);color:#fff;font-weight:700;font-size:.92rem;border:none;cursor:pointer;box-shadow:0 5px 18px rgba(26,95,168,.28);transition:transform .2s;font-family:'DM Sans',sans-serif;}
+.send-btn:active{transform:scale(.97);}
+.form-sent{display:none;text-align:center;color:var(--success);font-weight:700;font-size:.85rem;padding:10px;background:rgba(29,169,84,.1);border-radius:10px;border:1px solid rgba(29,169,84,.25);margin-top:10px;}
+
+/* SETTINGS */
+#settings-screen{background:var(--bg);}
+.settings-scroll{flex:1;overflow-y:auto;padding-bottom:100px;}
+.settings-scroll::-webkit-scrollbar{display:none;}
+.settings-body{padding:18px 16px 0;}
+.profile-card{background:var(--card);border-radius:22px;padding:20px 18px;border:1px solid var(--border);box-shadow:var(--shadow);display:flex;align-items:center;gap:16px;margin-bottom:20px;cursor:pointer;transition:transform .2s;}
+.profile-card:active{transform:scale(.98);}
+.profile-av{width:62px;height:62px;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--gold));display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-size:1.5rem;font-weight:700;color:#fff;flex-shrink:0;box-shadow:0 4px 16px rgba(26,95,168,.28);position:relative;overflow:hidden;}
+.profile-av img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0;border-radius:50%;}
+.profile-av .online-dot{position:absolute;bottom:3px;right:3px;width:13px;height:13px;border-radius:50%;background:var(--success);border:2px solid var(--card);z-index:2;}
+.profile-info{flex:1;min-width:0;}
+.profile-name{font-weight:700;font-size:1rem;color:var(--text);margin-bottom:2px;}
+.profile-email{font-size:.75rem;color:var(--muted);margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.profile-badge{display:inline-flex;align-items:center;gap:4px;background:var(--bluelight);color:var(--blue);font-size:.65rem;font-weight:700;padding:3px 8px;border-radius:100px;}
+.edit-chevron{color:var(--muted);font-size:1.1rem;flex-shrink:0;}
+.settings-section{margin-bottom:20px;}
+.settings-section-title{font-size:.65rem;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;padding-left:4px;}
+.settings-group{background:var(--card);border-radius:18px;border:1px solid var(--border);overflow:hidden;box-shadow:var(--shadow);}
+.settings-row{display:flex;align-items:center;padding:15px 16px;gap:13px;cursor:pointer;transition:background .18s;border-bottom:1px solid var(--border);}
+.settings-row:last-child{border-bottom:none;}
+.settings-row:active{background:var(--bg3);}
+.settings-row-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.05rem;flex-shrink:0;}
+.sri-blue{background:#daeaf9;} .sri-gold{background:#fff4dc;} .sri-green{background:#d4f4e2;}
+.sri-purple{background:#ede9fe;} .sri-red{background:rgba(229,62,62,.1);} .sri-gray{background:var(--bg3);}
+.settings-row-label{flex:1;}
+.settings-row-label span{display:block;font-size:.88rem;font-weight:600;color:var(--text);}
+.settings-row-label small{font-size:.72rem;color:var(--muted);}
+.settings-chevron{color:var(--muted);font-size:.85rem;}
+.toggle-switch{width:46px;height:26px;border-radius:13px;position:relative;cursor:pointer;flex-shrink:0;transition:background .3s;background:var(--border);border:none;padding:0;}
+.toggle-switch.on{background:var(--blue);}
+.toggle-knob{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .3s cubic-bezier(.34,1.56,.64,1);box-shadow:0 2px 6px rgba(0,0,0,.2);}
+.toggle-switch.on .toggle-knob{transform:translateX(20px);}
+.settings-row.danger .settings-row-label span{color:var(--danger);}
+.text-size-picker{display:flex;gap:6px;align-items:center;}
+.ts-btn{padding:4px 11px;border-radius:20px;border:1.5px solid var(--border);background:var(--bg3);color:var(--muted);font-size:.76rem;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;}
+.ts-btn.active{background:var(--blue);color:#fff;border-color:var(--blue);box-shadow:0 2px 8px rgba(26,95,168,.3);}
+
+/* MODALS */
+.modal-overlay{position:absolute;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);z-index:300;display:none;align-items:flex-end;justify-content:center;border-radius:54px;overflow:hidden;}
+.modal-overlay.show{display:flex;animation:fadeIn .25s forwards;}
+.modal-sheet{background:var(--bg2);border-radius:28px 28px 0 0;padding:8px 20px 30px;width:100%;animation:slideUp .35s cubic-bezier(.22,.68,0,1.2) forwards;}
+.modal-handle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 20px;}
+.modal-icon{text-align:center;font-size:2.5rem;margin-bottom:10px;}
+.modal-title{font-family:'Playfair Display',serif;font-size:1.2rem;text-align:center;color:var(--text);margin-bottom:6px;}
+.modal-desc{font-size:.82rem;color:var(--muted);text-align:center;line-height:1.6;margin-bottom:22px;}
+.modal-btns{display:flex;flex-direction:column;gap:10px;}
+.modal-btn-primary{width:100%;padding:15px;border-radius:14px;background:linear-gradient(135deg,#2272c3,#0f3d78);color:#fff;font-weight:700;font-size:.92rem;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;transition:transform .2s;}
+.modal-btn-primary:active{transform:scale(.97);}
+.modal-btn-danger{width:100%;padding:15px;border-radius:14px;background:var(--danger);color:#fff;font-weight:700;font-size:.92rem;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;transition:transform .2s;}
+.modal-btn-danger:active{transform:scale(.97);}
+.modal-btn-cancel{width:100%;padding:15px;border-radius:14px;background:var(--bg3);color:var(--text);font-weight:600;font-size:.92rem;border:1.5px solid var(--border);cursor:pointer;font-family:'DM Sans',sans-serif;transition:transform .2s;}
+.modal-btn-cancel:active{transform:scale(.97);}
+.modal-input{width:100%;padding:13px 14px;border:1.5px solid var(--border);border-radius:12px;background:var(--input-bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:.9rem;outline:none;transition:border-color .2s,box-shadow .2s;-webkit-appearance:none;margin-bottom:14px;}
+.modal-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,95,168,.12);}
+.modal-input::placeholder{color:var(--border2);}
+.avatar-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+.av-option{width:100%;aspect-ratio:1;border-radius:50%;border:2.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:1.5rem;cursor:pointer;transition:all .2s;background:var(--bg3);}
+.av-option.selected{border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,95,168,.2);}
+.av-option:active{transform:scale(.9);}
+.av-upload-btn{width:100%;padding:12px;border-radius:12px;border:1.5px dashed var(--border2);background:var(--bg3);color:var(--muted);font-size:.84rem;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;margin-bottom:14px;transition:all .2s;display:block;text-align:center;}
+.av-upload-btn:active{background:var(--bluelight);}
+
+/* TOAST */
+.toast{position:absolute;bottom:100px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--text);color:var(--bg2);font-size:.78rem;font-weight:600;padding:10px 20px;border-radius:100px;white-space:nowrap;opacity:0;transition:all .3s;pointer-events:none;z-index:400;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+
+<p class="stage-label">KINETEK · Firebase Edition · v4</p>
+
+<div class="stage">
+<div class="phone">
+  <div class="phone-btn vol1"></div><div class="phone-btn vol2"></div>
+  <div class="phone-btn vol3"></div><div class="phone-btn pwr"></div>
+  <div class="dynamic-island"></div>
+
+  <div class="screen">
+    <div class="status-bar" id="statusBar">
+      <span class="time" id="clock">9:41</span>
+      <div class="status-icons"><span>●●●</span><span>WiFi</span><span>🔋</span></div>
+    </div>
+
+    <!-- Loading overlay (global) -->
+    <div class="loading-overlay" id="globalLoader">
+      <div class="spinner"></div>
+      <div class="loading-txt" id="loaderTxt">Please wait…</div>
+    </div>
+
+    <!-- ══ SPLASH ══ -->
+    <div class="view active" id="splash">
+      <div class="sp-orb"></div><div class="sp-orb2"></div>
+      <div class="sp-content">
+        <div class="sp-ring">
+          <div class="sp-ring-spin"></div>
+          <div class="sp-circle">
+            <img src="mumswork_jpg.png" alt="K" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+            <div class="sp-fb" style="display:none">EK</div>
+          </div>
+        </div>
+        <div class="sp-name">KINETEK</div>
+        <div class="sp-tag">Quality · Service · Trust</div>
+      </div>
+      <div class="sp-bar-wrap">
+        <div class="sp-track"><div class="sp-fill"></div></div>
+        <span class="sp-txt">Loading…</span>
+      </div>
+    </div>
+
+    <!-- ══ ONBOARDING ══ -->
+    <div class="view" id="onboarding">
+      <div class="ob-slides">
+        <div class="ob-slide active" id="ob0"><div class="ob-illo ob-bg1">🏆</div><h2>World-Class<br/>Consulting</h2><p>KINETEK brings expert guidance, international training, and genuine care to every engagement.</p></div>
+        <div class="ob-slide" id="ob1"><div class="ob-illo ob-bg2">🤝</div><h2>You're More Than<br/>a Client</h2><p>We treat every relationship as a true partnership. Your goals become our goals — always.</p></div>
+        <div class="ob-slide" id="ob2"><div class="ob-illo ob-bg3">🌍</div><h2>Global Perspective,<br/>Local Heart</h2><p>Founded by Elizabeth Kings, certified from Rome Business School — excellence you can trust.</p></div>
+      </div>
+      <div class="ob-footer">
+        <div class="ob-dots"><div class="ob-dot active" id="d0"></div><div class="ob-dot" id="d1"></div><div class="ob-dot" id="d2"></div></div>
+        <button class="ob-btn" id="obNext">Next →</button>
+        <button class="ob-skip" id="obSkip">Skip</button>
+      </div>
+    </div>
+
+    <!-- ══ LOGIN ══ -->
+    <div class="view" id="login">
+      <div class="login-bg"><div class="login-bg-orb"></div></div>
+      <div class="login-scroll">
+        <div class="login-top">
+          <div class="login-logo-circle">
+            <img src="mumswork_jpg.png" alt="K" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"/>
+            <div class="login-logo-fb" style="display:none">EK</div>
+          </div>
+          <div class="login-brand-name">KINETEK</div>
+          <div class="login-brand-tag">Quality · Service · Trust</div>
+        </div>
+
+        <div class="login-card">
+          <div class="login-card-handle"></div>
+
+          <!-- Sign In / Sign Up tabs -->
+          <div class="auth-tabs">
+            <button class="auth-tab active" id="tabSignIn" onclick="switchAuthTab('signin')">Sign In</button>
+            <button class="auth-tab" id="tabSignUp" onclick="switchAuthTab('signup')">Create Account</button>
+          </div>
+
+          <!-- Google -->
+          <div class="social-btns">
+            <button class="social-btn google" onclick="googleSignIn()">
+              <div class="social-icon">🔵</div>
+              <span id="googleBtnTxt">Continue with Google</span>
+            </button>
+          </div>
+
+          <div class="divider-row"><div class="divider-line"></div><span class="divider-txt">or use email</span><div class="divider-line"></div></div>
+
+          <!-- Name field (signup only) -->
+          <div class="login-form-group" id="nameFieldWrap" style="display:none">
+            <label for="signupName">Full Name</label>
+            <input type="text" id="signupName" placeholder="e.g. Ekemini Kings"/>
+            <div class="login-form-error" id="signupNameError"></div>
+          </div>
+
+          <div class="login-form-group">
+            <label for="loginEmail">Email Address</label>
+            <input type="email" id="loginEmail" placeholder="you@example.com"/>
+            <div class="login-form-error" id="loginEmailError"></div>
+          </div>
+          <div class="login-form-group">
+            <label for="loginPass">Password</label>
+            <input type="password" id="loginPass" placeholder="••••••••"/>
+            <div class="login-form-error" id="loginPassError"></div>
+          </div>
+
+          <div class="login-error" id="loginError"></div>
+
+          <button class="login-main-btn" id="authMainBtn" onclick="handleEmailAuth()">Sign In →</button>
+
+          <div class="login-terms">By continuing you agree to KINETEK's<br/><a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ HOME ══ -->
+    <div class="view" id="home">
+      <div class="home-header">
+        <div class="hh-orb"></div>
+        <div class="hh-top">
+          <div>
+            <div class="hh-greeting">Welcome back,</div>
+            <div class="hh-title" id="homeTitle">KINETEK<br/><em>Consulting</em></div>
+          </div>
+          <div class="hh-avatar" id="homeAvatar" onclick="goSettings()">
+            <img src="mumswork_jpg.png" alt="" id="homeAvatarImg" onerror="this.style.display='none';document.getElementById('avatarInitial').style.display='block'"/>
+            <span style="display:none" id="avatarInitial">?</span>
+          </div>
+        </div>
+        <div class="hh-sub">Quality, Service, Trust — delivered with heart.</div>
+        <div class="stats-row">
+          <div class="stat-chip"><div class="sv">6+</div><div class="sl">Services</div></div>
+          <div class="stat-chip"><div class="sv">100%</div><div class="sl">Dedicated</div></div>
+          <div class="stat-chip"><div class="sv">🌍</div><div class="sl">Global</div></div>
+        </div>
+      </div>
+      <div class="home-body">
+        <div class="sec-lbl" style="margin-top:4px;">Our Services</div>
+        <div class="h-scroll">
+          <div class="svc-mini" onclick="goTab('services-screen',1)"><div class="svc-mini-icon">🏢</div><h4>Business Consulting</h4></div>
+          <div class="svc-mini" onclick="goTab('services-screen',1)"><div class="svc-mini-icon">📊</div><h4>Financial Advisory</h4></div>
+          <div class="svc-mini" onclick="goTab('services-screen',1)"><div class="svc-mini-icon">🎯</div><h4>Management</h4></div>
+          <div class="svc-mini" onclick="goTab('services-screen',1)"><div class="svc-mini-icon">🌐</div><h4>Brand Strategy</h4></div>
+          <div class="svc-mini" onclick="goTab('services-screen',1)"><div class="svc-mini-icon">🤖</div><h4>Tech & Digital</h4></div>
+        </div>
+        <div class="sec-lbl">Why Choose Us</div>
+        <div class="why-grid">
+          <div class="why-card"><div class="wi">👂</div><h5>We Listen First</h5><p>Deep understanding before advice.</p></div>
+          <div class="why-card"><div class="wi">🔒</div><h5>Trusted & Honest</h5><p>Confidential and loyal always.</p></div>
+          <div class="why-card"><div class="wi">📈</div><h5>Real Growth</h5><p>Lasting impact, not just reports.</p></div>
+          <div class="why-card"><div class="wi">🎓</div><h5>Certified Expert</h5><p>Rome Business School trained.</p></div>
+        </div>
+        <div class="cta-banner" onclick="goTab('contact-screen',3)">
+          <div><h4>Ready to Get Started?</h4><p>Let's talk about your goals today.</p></div>
+          <div class="cta-arr">→</div>
+        </div>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-item active" onclick="goTab('home',0)"><div class="tab-icon">🏠</div><span class="tab-label">Home</span></button>
+        <button class="tab-item" onclick="goTab('services-screen',1)"><div class="tab-icon">💼</div><span class="tab-label">Services</span></button>
+        <button class="tab-item" onclick="goTab('founder-screen',2)"><div class="tab-icon">👤</div><span class="tab-label">About</span></button>
+        <button class="tab-item" onclick="goTab('contact-screen',3)"><div class="tab-icon">💬</div><span class="tab-label">Contact</span></button>
+        <button class="tab-item" onclick="goSettings()"><div class="tab-icon">⚙️</div><span class="tab-label">Settings</span></button>
+      </div>
+      <div class="toast" id="toastHome"></div>
+    </div>
+
+    <!-- ══ SERVICES ══ -->
+    <div class="view" id="services-screen">
+      <div class="inner-header"><button class="back-btn" onclick="goTab('home',0)">← Back</button><h2>Our Services</h2></div>
+      <div class="services-list">
+        <div style="height:10px"></div>
+        <div class="svc-card"><div class="svc-icon">🏢</div><div><h4>Business Consulting</h4><p>Strategy development, market analysis, operational efficiency, and business structuring for sustainable success.</p></div></div>
+        <div class="svc-card"><div class="svc-icon">📊</div><div><h4>Financial Advisory</h4><p>Smart financial planning, budgeting support, and investment guidance to keep your resources working for you.</p></div></div>
+        <div class="svc-card"><div class="svc-icon">🎯</div><div><h4>Management Consulting</h4><p>Leadership coaching, team performance optimisation, and process redesign for lasting organisational change.</p></div></div>
+        <div class="svc-card"><div class="svc-icon">🌐</div><div><h4>Brand & Market Strategy</h4><p>Position your brand, understand your audience, and craft a presence that resonates and converts.</p></div></div>
+        <div class="svc-card"><div class="svc-icon">🤖</div><div><h4>Tech & Digital Strategy</h4><p>Guiding businesses through digital transformation with a human-centred approach to technology.</p></div></div>
+        <div class="svc-card"><div class="svc-icon">🧩</div><div><h4>Startup Advisory</h4><p>From ideation to launch — mentorship, structure, and support for entrepreneurs building something new.</p></div></div>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-item" onclick="goTab('home',0)"><div class="tab-icon">🏠</div><span class="tab-label">Home</span></button>
+        <button class="tab-item active" onclick="goTab('services-screen',1)"><div class="tab-icon">💼</div><span class="tab-label">Services</span></button>
+        <button class="tab-item" onclick="goTab('founder-screen',2)"><div class="tab-icon">👤</div><span class="tab-label">About</span></button>
+        <button class="tab-item" onclick="goTab('contact-screen',3)"><div class="tab-icon">💬</div><span class="tab-label">Contact</span></button>
+        <button class="tab-item" onclick="goSettings()"><div class="tab-icon">⚙️</div><span class="tab-label">Settings</span></button>
+      </div>
+    </div>
+
+    <!-- ══ FOUNDER ══ -->
+    <div class="view" id="founder-screen">
+      <div class="founder-scroll">
+        <div class="founder-hero-bg">
+          <button class="back-btn" style="align-self:flex-start;" onclick="goTab('home',0)">← Back</button>
+          <div class="founder-av-wrap"><div class="founder-av-ring"><div class="founder-av-inner"><div class="founder-av-letters">EK</div></div></div></div>
+          <div class="founder-name">Elizabeth Kings</div>
+          <div class="founder-role">Founder & Principal Consultant</div>
+        </div>
+        <div class="founder-body">
+          <div class="cert-card"><div class="cert-badge">🎓</div><div class="cert-text"><strong>Rome Business School</strong><span>Certified Graduate · Business & Management</span></div></div>
+          <div class="bio-card">
+            <p>Elizabeth Kings is a distinguished consultant with an international academic background, holding a prestigious certification from the <strong>Rome Business School</strong> — one of Europe's most renowned institutions.</p>
+            <p>Her philosophy: every client deserves a consultant who genuinely cares — someone who brings expertise <em>and</em> empathy to the table.</p>
+            <p>With experience spanning business development, strategy, and leadership, Elizabeth founded KINETEK to bring world-class consulting to every client, wherever they are.</p>
+          </div>
+          <div class="vals-row">
+            <span class="val-chip">🌟 International</span>
+            <span class="val-chip">📜 Rome Business School</span>
+            <span class="val-chip">❤️ People-Centred</span>
+            <span class="val-chip">🌍 Global Mindset</span>
+          </div>
+        </div>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-item" onclick="goTab('home',0)"><div class="tab-icon">🏠</div><span class="tab-label">Home</span></button>
+        <button class="tab-item" onclick="goTab('services-screen',1)"><div class="tab-icon">💼</div><span class="tab-label">Services</span></button>
+        <button class="tab-item active" onclick="goTab('founder-screen',2)"><div class="tab-icon">👤</div><span class="tab-label">About</span></button>
+        <button class="tab-item" onclick="goTab('contact-screen',3)"><div class="tab-icon">💬</div><span class="tab-label">Contact</span></button>
+        <button class="tab-item" onclick="goSettings()"><div class="tab-icon">⚙️</div><span class="tab-label">Settings</span></button>
+      </div>
+    </div>
+
+    <!-- ══ CONTACT ══ -->
+    <div class="view" id="contact-screen">
+      <div class="inner-header"><button class="back-btn" onclick="goTab('home',0)">← Back</button><h2>Get In Touch</h2></div>
+      <div class="contact-scroll">
+        <div class="contact-body">
+          <a href="https://wa.me/2348023773756" target="_blank" class="wa-card">
+            <div class="wa-icon-big">💬</div>
+            <div class="wa-card-text"><strong>Chat on WhatsApp</strong><span>+234 802 377 3756</span><small>🇳🇬 Nigerian Number · International welcome</small></div>
+          </a>
+          <div class="form-card">
+            <h3>Send a Message</h3>
+            <div class="app-fg"><label>Your Name</label><input type="text" id="cName" placeholder="e.g. John Adebayo"/><div class="contact-form-error" id="cNameError"></div></div>
+            <div class="app-fg"><label>Email</label><input type="email" id="cEmail" placeholder="you@example.com"/><div class="contact-form-error" id="cEmailError"></div></div>
+            <div class="app-fg">
+              <label>How Can We Help?</label>
+              <select id="cService">
+                <option value="">Select a service…</option>
+                <option>Business Consulting</option><option>Financial Advisory</option>
+                <option>Management Consulting</option><option>Brand & Market Strategy</option>
+                <option>Tech & Digital Strategy</option><option>Startup Advisory</option><option>Other</option>
+              </select>
+            </div>
+            <div class="app-fg"><label>Message</label><textarea id="cMsg" rows="3" placeholder="Tell us about your goals…"></textarea><div class="contact-form-error" id="cMsgError"></div></div>
+            <button class="send-btn" onclick="sendMsg()">Send Message ✉️</button>
+            <div class="form-sent" id="formSent">✅ Sent! We'll be in touch soon.</div>
+          </div>
+        </div>
+      </div>
+      <div class="tab-bar">
+        <button class="tab-item" onclick="goTab('home',0)"><div class="tab-icon">🏠</div><span class="tab-label">Home</span></button>
+        <button class="tab-item" onclick="goTab('services-screen',1)"><div class="tab-icon">💼</div><span class="tab-label">Services</span></button>
+        <button class="tab-item" onclick="goTab('founder-screen',2)"><div class="tab-icon">👤</div><span class="tab-label">About</span></button>
+        <button class="tab-item active" onclick="goTab('contact-screen',3)"><div class="tab-icon">💬</div><span class="tab-label">Contact</span></button>
+        <button class="tab-item" onclick="goSettings()"><div class="tab-icon">⚙️</div><span class="tab-label">Settings</span></button>
+      </div>
+    </div>
+
+    <!-- ══ SETTINGS ══ -->
+    <div class="view" id="settings-screen">
+      <div class="inner-header"><button class="back-btn" onclick="goTab('home',0)">← Back</button><h2>Settings</h2></div>
+      <div class="settings-scroll">
+        <div class="settings-body">
+
+          <div class="profile-card" onclick="openModal('modal-avatar')">
+            <div class="profile-av" id="settingsAv">
+              <span id="settingsInitial">?</span>
+              <img id="settingsAvImg" src="" alt="" style="display:none"/>
+              <div class="online-dot"></div>
+            </div>
+            <div class="profile-info">
+              <div class="profile-name" id="settingsName">My Account</div>
+              <div class="profile-email" id="settingsEmail">—</div>
+              <div class="profile-badge">✅ Verified Member</div>
+            </div>
+            <div class="edit-chevron">›</div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-title">Personal Information</div>
+            <div class="settings-group">
+              <div class="settings-row" onclick="openModal('modal-name')"><div class="settings-row-icon sri-blue">👤</div><div class="settings-row-label"><span>Full Name</span><small id="infoNameVal">—</small></div><div class="settings-chevron">›</div></div>
+              <div class="settings-row" onclick="openModal('modal-email')"><div class="settings-row-icon sri-blue">✉️</div><div class="settings-row-label"><span>Email / Gmail</span><small id="infoEmailVal">—</small></div><div class="settings-chevron">›</div></div>
+              <div class="settings-row" onclick="openModal('modal-phone')"><div class="settings-row-icon sri-blue">📱</div><div class="settings-row-label"><span>Phone Number</span><small id="infoPhoneVal">Not linked</small></div><div class="settings-chevron">›</div></div>
+              <div class="settings-row" onclick="toast('Signed in via: '+(window._loginMethod||'Email'))"><div class="settings-row-icon sri-purple">🔗</div><div class="settings-row-label"><span>Linked Account</span><small id="infoMethod">Email</small></div><div class="settings-chevron">›</div></div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-title">Appearance</div>
+            <div class="settings-group">
+              <div class="settings-row"><div class="settings-row-icon sri-gold">🌙</div><div class="settings-row-label"><span>Dark Mode</span><small>Switch between light & dark</small></div><button class="toggle-switch" id="darkToggle" onclick="toggleDark(this)"><div class="toggle-knob"></div></button></div>
+              <div class="settings-row" style="cursor:default;"><div class="settings-row-icon sri-gold">🔤</div><div class="settings-row-label"><span>Text Size</span><small id="textSizeLabel">Medium</small></div><div class="text-size-picker"><button class="ts-btn" id="ts-small" onclick="setTextSize('small','Small')">S</button><button class="ts-btn active" id="ts-medium" onclick="setTextSize('medium','Medium')">M</button><button class="ts-btn" id="ts-large" onclick="setTextSize('large','Large')">L</button></div></div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-title">Notifications</div>
+            <div class="settings-group">
+              <div class="settings-row"><div class="settings-row-icon sri-green">🔔</div><div class="settings-row-label"><span>Push Notifications</span><small>Updates & messages</small></div><button class="toggle-switch on" onclick="toggleSimple(this)"><div class="toggle-knob" style="transform:translateX(20px)"></div></button></div>
+              <div class="settings-row"><div class="settings-row-icon sri-green">📧</div><div class="settings-row-label"><span>Email Updates</span><small>News & offers</small></div><button class="toggle-switch" onclick="toggleSimple(this)"><div class="toggle-knob"></div></button></div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-title">Support</div>
+            <div class="settings-group">
+              <div class="settings-row" onclick="toast('Opening Help Centre…')"><div class="settings-row-icon sri-blue">❓</div><div class="settings-row-label"><span>Help & FAQ</span></div><div class="settings-chevron">›</div></div>
+              <div class="settings-row" onclick="toast('Opening Privacy Policy…')"><div class="settings-row-icon sri-blue">🔒</div><div class="settings-row-label"><span>Privacy Policy</span></div><div class="settings-chevron">›</div></div>
+              <div class="settings-row" onclick="toast('Opening Terms of Service…')"><div class="settings-row-icon sri-blue">📄</div><div class="settings-row-label"><span>Terms of Service</span></div><div class="settings-chevron">›</div></div>
+              <div class="settings-row" onclick="toast('Version 1.0.0 — Up to date ✅')"><div class="settings-row-icon sri-gray">ℹ️</div><div class="settings-row-label"><span>App Version</span><small>1.0.0</small></div><div class="settings-chevron">›</div></div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-title">Account</div>
+            <div class="settings-group">
+              <div class="settings-row" onclick="openModal('modal-logout')"><div class="settings-row-icon sri-gray">🚪</div><div class="settings-row-label"><span>Log Out</span></div><div class="settings-chevron">›</div></div>
+              <div class="settings-row danger" onclick="openModal('modal-delete')"><div class="settings-row-icon sri-red">🗑️</div><div class="settings-row-label"><span>Delete Account</span><small style="color:var(--muted)">This cannot be undone</small></div><div class="settings-chevron" style="color:var(--danger)">›</div></div>
+            </div>
+          </div>
+
+          <div style="text-align:center;padding:10px 0 4px;font-size:.68rem;color:var(--muted);">KINETEK © 2025 · by Ekemini-Abasi Kings</div>
+        </div>
+      </div>
+
+      <div class="tab-bar">
+        <button class="tab-item" onclick="goTab('home',0)"><div class="tab-icon">🏠</div><span class="tab-label">Home</span></button>
+        <button class="tab-item" onclick="goTab('services-screen',1)"><div class="tab-icon">💼</div><span class="tab-label">Services</span></button>
+        <button class="tab-item" onclick="goTab('founder-screen',2)"><div class="tab-icon">👤</div><span class="tab-label">About</span></button>
+        <button class="tab-item" onclick="goTab('contact-screen',3)"><div class="tab-icon">💬</div><span class="tab-label">Contact</span></button>
+        <button class="tab-item active" onclick="goSettings()"><div class="tab-icon">⚙️</div><span class="tab-label">Settings</span></button>
+      </div>
+
+      <!-- Modals -->
+      <div class="modal-overlay" id="modal-name"><div class="modal-sheet"><div class="modal-handle"></div><div class="modal-icon">👤</div><div class="modal-title">Edit Name</div><input class="modal-input" id="nameInput" type="text" placeholder="Enter your full name"/><div class="modal-btns"><button class="modal-btn-primary" onclick="saveName()">Save Name</button><button class="modal-btn-cancel" onclick="closeModal('modal-name')">Cancel</button></div></div></div>
+
+      <div class="modal-overlay" id="modal-email"><div class="modal-sheet"><div class="modal-handle"></div><div class="modal-icon">✉️</div><div class="modal-title">Link Email / Gmail</div><div class="modal-desc">Update your email address or link a Gmail account.</div><input class="modal-input" id="emailInput" type="email" placeholder="you@example.com"/><div class="modal-btns"><button class="modal-btn-primary" onclick="saveEmail()">Save Email</button><button class="modal-btn-cancel" onclick="closeModal('modal-email')">Cancel</button></div></div></div>
+
+      <div class="modal-overlay" id="modal-phone"><div class="modal-sheet"><div class="modal-handle"></div><div class="modal-icon">📱</div><div class="modal-title">Link Phone Number</div><div class="modal-desc">Add your phone number for easier account recovery.</div><input class="modal-input" id="phoneInput" type="tel" placeholder="+234 800 000 0000"/><div class="modal-btns"><button class="modal-btn-primary" onclick="savePhone()">Link Number</button><button class="modal-btn-cancel" onclick="closeModal('modal-phone')">Cancel</button></div></div></div>
+
+      <div class="modal-overlay" id="modal-avatar"><div class="modal-sheet"><div class="modal-handle"></div><div class="modal-icon">🖼️</div><div class="modal-title">Profile Picture</div><div class="modal-desc">Pick an emoji avatar or upload your own photo.</div><div class="avatar-grid" id="avatarGrid"></div><label class="av-upload-btn" for="avatarFileInput">📷 Upload Photo from Device</label><input type="file" id="avatarFileInput" accept="image/*" style="display:none" onchange="handleAvatarUpload(event)"/><div class="modal-btns"><button class="modal-btn-primary" onclick="saveAvatar()">Apply</button><button class="modal-btn-cancel" onclick="closeModal('modal-avatar')">Cancel</button></div></div></div>
+
+      <div class="modal-overlay" id="modal-logout"><div class="modal-sheet"><div class="modal-handle"></div><div class="modal-icon">🚪</div><div class="modal-title">Log Out?</div><div class="modal-desc">You'll need to sign in again to access your KINETEK dashboard.</div><div class="modal-btns"><button class="modal-btn-danger" onclick="doLogout()">Yes, Log Me Out</button><button class="modal-btn-cancel" onclick="closeModal('modal-logout')">Cancel</button></div></div></div>
+
+      <div class="modal-overlay" id="modal-delete"><div class="modal-sheet"><div class="modal-handle"></div><div class="modal-icon">⚠️</div><div class="modal-title">Delete Account?</div><div class="modal-desc">This will permanently delete your KINETEK account and all your data. This action <strong>cannot be undone</strong>.</div><div class="modal-btns"><button class="modal-btn-danger" onclick="doDeleteAccount()">Delete My Account</button><button class="modal-btn-cancel" onclick="closeModal('modal-delete')">Keep My Account</button></div></div></div>
+
+      <div class="toast" id="toastSettings"></div>
+    </div>
+
+  </div><!-- /screen -->
+</div><!-- /phone -->
+</div><!-- /stage -->
+
+<script>
+/* ══════════════════════════════════
+   STATE
+══════════════════════════════════ */
+let obSlide = 0;
+let isDark = false;
+let authMode = 'signin'; // 'signin' | 'signup'
+const EMOJI_AVATARS = ['😀','😎','🦁','🐼','🌸','⭐','🔥','💎','👑','🌊','🦋','🎯'];
+let pendingAvatarEmoji = null;
+let pendingAvatarImage = null;
+
+/* ══════════════════════════════════
+   CLOCK
+══════════════════════════════════ */
+function updateClock(){const n=new Date(),h=n.getHours(),m=n.getMinutes();document.getElementById('clock').textContent=`${h}:${m<10?'0'+m:m}`;}
+updateClock(); setInterval(updateClock,30000);
+
+function setStatusColor(c){document.getElementById('statusBar').style.color=c;}
+
+/* ══════════════════════════════════
+   VALIDATION
+══════════════════════════════════ */
+function isValidEmail(e){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);}
+
+function showFieldError(id,msg){
+  const f=document.getElementById(id); if(f){f.style.borderColor='var(--danger)';f.style.boxShadow='0 0 0 3px rgba(229,62,62,.12)';}
+  const e=document.getElementById(id+'Error'); if(e){e.style.display='block';e.textContent=msg;}
+}
+function clearFieldError(id){
+  const f=document.getElementById(id); if(f){f.style.borderColor='';f.style.boxShadow='';}
+  const e=document.getElementById(id+'Error'); if(e) e.style.display='none';
+}
+
+/* ══════════════════════════════════
+   LOADER
+══════════════════════════════════ */
+function showLoader(txt='Please wait…'){
+  document.getElementById('loaderTxt').textContent=txt;
+  document.getElementById('globalLoader').classList.add('show');
+}
+function hideLoader(){document.getElementById('globalLoader').classList.remove('show');}
+
+/* ══════════════════════════════════
+   SPLASH
+══════════════════════════════════ */
+window.addEventListener('DOMContentLoaded',()=>{
+  buildAvatarGrid();
+  // Wait for Firebase auth check (max 3s) before showing onboarding
+  setTimeout(()=>{
+    const active=document.querySelector('.view.active');
+    if(active && active.id==='splash') showView('onboarding');
+  },3000);
+});
+
+/* ══════════════════════════════════
+   VIEW SWITCHING
+══════════════════════════════════ */
+function showView(id){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  const el=document.getElementById(id);
+  el.classList.add('active');
+  el.style.animation='slideUp .4s cubic-bezier(.22,.68,0,1) forwards';
+  const dark=['home','services-screen','founder-screen','contact-screen','settings-screen'];
+  setStatusColor(dark.includes(id)?'#fff':'#131928');
+}
+
+/* ══════════════════════════════════
+   ONBOARDING
+══════════════════════════════════ */
+document.getElementById('obNext').addEventListener('click',()=>{if(obSlide<2){nextOb();}else{showView('login');}});
+document.getElementById('obSkip').addEventListener('click',()=>showView('login'));
+function nextOb(){
+  document.getElementById('ob'+obSlide).classList.remove('active');
+  document.getElementById('ob'+obSlide).classList.add('exit');
+  setTimeout(()=>document.getElementById('ob'+obSlide).classList.remove('exit'),450);
+  obSlide++;
+  document.getElementById('ob'+obSlide).classList.add('active');
+  document.querySelectorAll('.ob-dot').forEach((d,i)=>d.classList.toggle('active',i===obSlide));
+  document.getElementById('obNext').textContent=obSlide===2?"Let's Go 🚀":'Next →';
+}
+
+/* ══════════════════════════════════
+   AUTH TABS
+══════════════════════════════════ */
+function switchAuthTab(mode){
+  authMode=mode;
+  document.getElementById('tabSignIn').classList.toggle('active',mode==='signin');
+  document.getElementById('tabSignUp').classList.toggle('active',mode==='signup');
+  document.getElementById('nameFieldWrap').style.display=mode==='signup'?'block':'none';
+  document.getElementById('authMainBtn').textContent=mode==='signin'?'Sign In →':'Create Account →';
+  document.getElementById('googleBtnTxt').textContent=mode==='signin'?'Continue with Google':'Sign up with Google';
+  document.getElementById('loginError').style.display='none';
+  clearFieldError('loginEmail'); clearFieldError('loginPass');
+  if(mode==='signup') clearFieldError('signupName');
+}
+
+/* ══════════════════════════════════
+   GOOGLE SIGN IN (REAL)
+══════════════════════════════════ */
+async function googleSignIn(){
+  if(!window._fb){toast('Firebase loading, please wait…');return;}
+  showLoader('Connecting to Google…');
+  try{
+    const result=await window._fb.signInWithPopup(window._fb.auth, window._fb.googleProv);
+    const user=result.user;
+    await saveUserToFirestore(user.uid,{
+      name: user.displayName||user.email.split('@')[0],
+      email: user.email,
+      method:'Google',
+      createdAt: window._fb.serverTimestamp()
+    });
+    hideLoader();
+    // onAuthStateChanged will handle UI
+  }catch(err){
+    hideLoader();
+    showLoginError(friendlyError(err.code));
+  }
+}
+
+/* ══════════════════════════════════
+   EMAIL AUTH (REAL)
+══════════════════════════════════ */
+async function handleEmailAuth(){
+  if(!window._fb){toast('Firebase loading, please wait…');return;}
+  clearFieldError('loginEmail'); clearFieldError('loginPass');
+  if(authMode==='signup') clearFieldError('signupName');
+  document.getElementById('loginError').style.display='none';
+
+  const email=document.getElementById('loginEmail').value.trim();
+  const pass=document.getElementById('loginPass').value.trim();
+
+  if(authMode==='signup'){
+    const name=document.getElementById('signupName').value.trim();
+    if(!name){showFieldError('signupName','Name is required');return;}
+    if(!email){showFieldError('loginEmail','Email is required');return;}
+    if(!isValidEmail(email)){showFieldError('loginEmail','Enter a valid email');return;}
+    if(!pass||pass.length<6){showFieldError('loginPass','Password must be at least 6 characters');return;}
+
+    showLoader('Creating your account…');
+    try{
+      const cred=await window._fb.createUserWithEmailAndPassword(window._fb.auth,email,pass);
+      await window._fb.updateProfile(cred.user,{displayName:name});
+      await saveUserToFirestore(cred.user.uid,{name,email,method:'Email',createdAt:window._fb.serverTimestamp()});
+      hideLoader();
+    }catch(err){hideLoader();showLoginError(friendlyError(err.code));}
+  } else {
+    if(!email){showFieldError('loginEmail','Email is required');return;}
+    if(!isValidEmail(email)){showFieldError('loginEmail','Enter a valid email');return;}
+    if(!pass){showFieldError('loginPass','Password is required');return;}
+
+    showLoader('Signing you in…');
+    try{
+      await window._fb.signInWithEmailAndPassword(window._fb.auth,email,pass);
+      hideLoader();
+    }catch(err){hideLoader();showLoginError(friendlyError(err.code));}
+  }
+}
+
+function showLoginError(msg){
+  const e=document.getElementById('loginError');
+  e.textContent=msg; e.style.display='block';
+  e.style.animation='none';
+  requestAnimationFrame(()=>e.style.animation='shakeX .4s ease');
+}
+
+function friendlyError(code){
+  const map={
+    'auth/user-not-found':'No account found with this email.',
+    'auth/wrong-password':'Incorrect password. Please try again.',
+    'auth/email-already-in-use':'This email is already registered. Try signing in.',
+    'auth/invalid-email':'Please enter a valid email address.',
+    'auth/weak-password':'Password must be at least 6 characters.',
+    'auth/too-many-requests':'Too many attempts. Please try again later.',
+    'auth/network-request-failed':'Network error. Check your connection.',
+    'auth/popup-closed-by-user':'Sign-in was cancelled.',
+    'auth/invalid-credential':'Incorrect email or password.',
+  };
+  return map[code]||'Something went wrong. Please try again.';
+}
+
+/* ══════════════════════════════════
+   FIRESTORE: SAVE USER PROFILE
+══════════════════════════════════ */
+async function saveUserToFirestore(uid, data){
+  if(!window._fb) return;
+  const ref=window._fb.doc(window._fb.db,'users',uid);
+  const snap=await window._fb.getDoc(ref);
+  if(snap.exists()){
+    // Only update provided fields, don't overwrite everything
+    await window._fb.updateDoc(ref, data);
+  } else {
+    await window._fb.setDoc(ref, data);
+  }
+}
+
+/* ══════════════════════════════════
+   APPLY USER TO UI
+══════════════════════════════════ */
+function applyUserToUI(profile){
+  const {name,email,phone,method}=profile;
+  window._loginMethod=method;
+  const firstName=name.split(' ')[0];
+
+  document.getElementById('homeTitle').innerHTML=`Hello, <em>${firstName}</em>`;
+  document.getElementById('avatarInitial').textContent=firstName.charAt(0).toUpperCase();
+  document.getElementById('settingsInitial').textContent=firstName.charAt(0).toUpperCase();
+  document.getElementById('settingsName').textContent=name;
+  document.getElementById('settingsEmail').textContent=email;
+  document.getElementById('infoNameVal').textContent=name;
+  document.getElementById('infoEmailVal').textContent=email;
+  document.getElementById('infoPhoneVal').textContent=phone||'Not linked';
+  document.getElementById('infoMethod').textContent=method;
+  document.getElementById('nameInput').value=name;
+  document.getElementById('emailInput').value=email;
+  if(phone) document.getElementById('phoneInput').value=phone;
+
+  // Pre-fill contact form if logged in
+  document.getElementById('cName').value=name;
+  document.getElementById('cEmail').value=email;
+}
+
+/* ══════════════════════════════════
+   NAVIGATION
+══════════════════════════════════ */
+function goTab(id,idx){showView(id);setTab(idx);}
+function goSettings(){showView('settings-screen');setTab(4);}
+function setTab(idx){document.querySelectorAll('.tab-item').forEach((t,i)=>t.classList.toggle('active',i===idx));}
+
+/* ══════════════════════════════════
+   DARK MODE
+══════════════════════════════════ */
+function toggleDark(btn){
+  isDark=!isDark;
+  btn.classList.toggle('on',isDark);
+  btn.querySelector('.toggle-knob').style.transform=isDark?'translateX(20px)':'translateX(0)';
+  document.documentElement.setAttribute('data-theme',isDark?'dark':'light');
+  toast(isDark?'🌙 Dark mode on':'☀️ Light mode on');
+}
+function toggleSimple(btn){
+  btn.classList.toggle('on');
+  btn.querySelector('.toggle-knob').style.transform=btn.classList.contains('on')?'translateX(20px)':'translateX(0)';
+}
+
+/* ══════════════════════════════════
+   TEXT SIZE
+══════════════════════════════════ */
+function setTextSize(size,label){
+  document.documentElement.setAttribute('data-text-size',size);
+  document.getElementById('textSizeLabel').textContent=label;
+  ['small','medium','large'].forEach(s=>document.getElementById('ts-'+s).classList.toggle('active',s===size));
+  toast('Text size: '+label);
+}
+
+/* ══════════════════════════════════
+   MODALS
+══════════════════════════════════ */
+function openModal(id){document.getElementById(id).classList.add('show');}
+function closeModal(id){document.getElementById(id).classList.remove('show');}
+
+/* ── Save Name (Firestore) ── */
+async function saveName(){
+  const val=document.getElementById('nameInput').value.trim();
+  if(!val){toast('Please enter a valid name');return;}
+  document.getElementById('settingsName').textContent=val;
+  document.getElementById('infoNameVal').textContent=val;
+  const firstName=val.split(' ')[0];
+  document.getElementById('homeTitle').innerHTML=`Hello, <em>${firstName}</em>`;
+  document.getElementById('avatarInitial').textContent=firstName.charAt(0).toUpperCase();
+  document.getElementById('settingsInitial').textContent=firstName.charAt(0).toUpperCase();
+  closeModal('modal-name');
+  if(window._currentUID){
+    await saveUserToFirestore(window._currentUID,{name:val});
+  }
+  toast('✅ Name updated!');
+}
+
+/* ── Save Email (Firestore) ── */
+async function saveEmail(){
+  const val=document.getElementById('emailInput').value.trim();
+  if(!val||!isValidEmail(val)){toast('Please enter a valid email');return;}
+  document.getElementById('settingsEmail').textContent=val;
+  document.getElementById('infoEmailVal').textContent=val;
+  closeModal('modal-email');
+  if(window._currentUID){
+    await saveUserToFirestore(window._currentUID,{email:val});
+  }
+  toast(val.endsWith('@gmail.com')?'✅ Gmail linked!':'✅ Email updated!');
+}
+
+/* ── Save Phone (Firestore) ── */
+async function savePhone(){
+  const val=document.getElementById('phoneInput').value.trim();
+  if(!val){toast('Please enter a phone number');return;}
+  document.getElementById('infoPhoneVal').textContent=val;
+  closeModal('modal-phone');
+  if(window._currentUID){
+    await saveUserToFirestore(window._currentUID,{phone:val});
+  }
+  toast('✅ Phone number linked!');
+}
+
+/* ══════════════════════════════════
+   AVATAR
+══════════════════════════════════ */
+function buildAvatarGrid(){
+  const grid=document.getElementById('avatarGrid'); grid.innerHTML='';
+  EMOJI_AVATARS.forEach(emoji=>{
+    const div=document.createElement('div');
+    div.className='av-option'; div.textContent=emoji;
+    div.onclick=()=>{pendingAvatarEmoji=emoji;pendingAvatarImage=null;document.querySelectorAll('.av-option').forEach(o=>o.classList.remove('selected'));div.classList.add('selected');};
+    grid.appendChild(div);
+  });
+}
+
+function handleAvatarUpload(event){
+  const file=event.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=(e)=>{pendingAvatarImage=e.target.result;pendingAvatarEmoji=null;document.querySelectorAll('.av-option').forEach(o=>o.classList.remove('selected'));toast('Photo selected — tap Apply');};
+  reader.readAsDataURL(file);
+}
+
+function saveAvatar(){
+  if(pendingAvatarImage){applyImageAvatar(pendingAvatarImage);}
+  else if(pendingAvatarEmoji){applyEmojiAvatar(pendingAvatarEmoji);}
+  else{toast('Please choose an avatar first');return;}
+  closeModal('modal-avatar');
+  toast('✅ Profile picture updated!');
+}
+
+function applyEmojiAvatar(emoji){
+  document.getElementById('homeAvatar').innerHTML=`<span style="font-size:1.6rem">${emoji}</span>`;
+  const av=document.getElementById('settingsAv');
+  av.querySelector('#settingsInitial').style.display='none';
+  av.querySelector('#settingsAvImg').style.display='none';
+  let sp=av.querySelector('.av-emoji-display');
+  if(!sp){sp=document.createElement('span');sp.className='av-emoji-display';sp.style.cssText='font-size:1.9rem;position:relative;z-index:2;';av.insertBefore(sp,av.querySelector('.online-dot'));}
+  sp.style.display='block'; sp.textContent=emoji;
+}
+
+function applyImageAvatar(dataURL){
+  document.getElementById('homeAvatar').innerHTML=`<img src="${dataURL}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" alt="avatar"/>`;
+  const av=document.getElementById('settingsAv');
+  av.querySelector('#settingsInitial').style.display='none';
+  const sp=av.querySelector('.av-emoji-display'); if(sp) sp.style.display='none';
+  const img=av.querySelector('#settingsAvImg'); img.src=dataURL; img.style.display='block';
+}
+
+/* ══════════════════════════════════
+   LOGOUT / DELETE (REAL)
+══════════════════════════════════ */
+async function doLogout(){
+  closeModal('modal-logout');
+  if(window._fb){
+    showLoader('Signing out…');
+    try{ await window._fb.signOut(window._fb.auth); }catch(e){}
+    hideLoader();
+  }
+  window._currentUID=null; window._firebaseUser=null;
+  document.getElementById('loginEmail').value='';
+  document.getElementById('loginPass').value='';
+  document.getElementById('loginError').style.display='none';
+  switchAuthTab('signin');
+  setTimeout(()=>showView('login'),200);
+}
+
+async function doDeleteAccount(){
+  closeModal('modal-delete');
+  if(window._fb && window._firebaseUser){
+    showLoader('Deleting account…');
+    try{
+      await window._fb.deleteUser(window._fb.auth.currentUser);
+    }catch(e){}
+    hideLoader();
+  }
+  window._currentUID=null; window._firebaseUser=null;
+  setTimeout(()=>{showView('login');setTimeout(()=>toast('Account deleted. Sorry to see you go.'),600);},200);
+}
+
+/* ══════════════════════════════════
+   CONTACT FORM
+══════════════════════════════════ */
+function sendMsg(){
+  const name=document.getElementById('cName').value.trim();
+  const email=document.getElementById('cEmail').value.trim();
+  const msg=document.getElementById('cMsg').value.trim();
+  clearFieldError('cName'); clearFieldError('cEmail'); clearFieldError('cMsg');
+  if(!name){showFieldError('cName','Name is required');return;}
+  if(!email){showFieldError('cEmail','Email is required');return;}
+  if(!isValidEmail(email)){showFieldError('cEmail','Enter a valid email');return;}
+  if(!msg){showFieldError('cMsg','Message cannot be empty');return;}
+  const btn=document.querySelector('.send-btn');
+  btn.textContent='Sending… ⏳'; btn.disabled=true;
+  setTimeout(()=>{
+    btn.textContent='Send Message ✉️'; btn.disabled=false;
+    document.getElementById('cMsg').value='';
+    document.getElementById('cService').value='';
+    const s=document.getElementById('formSent'); s.style.display='block';
+    setTimeout(()=>s.style.display='none',4000);
+  },1400);
+}
+
+/* ══════════════════════════════════
+   TOAST
+══════════════════════════════════ */
+function toast(msg){
+  const active=document.querySelector('.view.active'); if(!active) return;
+  let t=active.querySelector('.toast');
+  if(!t){t=document.createElement('div');t.className='toast';active.appendChild(t);}
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._timer); t._timer=setTimeout(()=>t.classList.remove('show'),2600);
+}
+</script>
+</body>
+</html>
